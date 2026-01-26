@@ -9,6 +9,8 @@ class Game:
         self.turn = WHITE
         self.selected_piece = None
         self.legal_moves = []
+        self.move_history = []
+
 
     def select_piece(self, row, col):
         piece = self.board.get_piece(row, col)
