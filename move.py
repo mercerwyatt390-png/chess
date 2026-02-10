@@ -1,8 +1,10 @@
 
 
 class Move:
-    def __init__(self, end_pos, piece_moved, piece_captured=None):
-        self.end_pos = end_pos
+    def __init__(self, piece_moved, piece_captured=False):
         self.piece_moved = piece_moved
         self.piece_captured = piece_captured
+    
+    
+        
 

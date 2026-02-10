@@ -32,6 +32,15 @@ class Board:
         self.grid[7][4] = King(WHITE, 7, 4)
         self.grid[0][4] = King(BLACK, 0, 4)
 
+    def find_king(self, color):
+        for row in range(8):
+            for col in range(8):
+                piece = self.get_piece(row, col)
+                if piece and piece.color == color and piece.notation == "K":
+                    return piece
+        return None
+
+
 
     def get_piece(self, row, col):
         if self.in_bounds(row, col):
@@ -45,6 +54,10 @@ class Board:
         return 0 <= row < 8 and 0 <= col < 8
 
     def move_piece(self, piece, row, col):
+        target = self.get_piece(row, col)
+        if target and target.notation == "K":
+            return False  # Cannot capture king
         self.grid[piece.row][piece.col] = None
         self.grid[row][col] = piece
         piece.move(row, col)
+        return True
