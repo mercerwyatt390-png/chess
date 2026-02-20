@@ -1,5 +1,10 @@
 from board import Board
-from constants import WHITE, BLACK
+from constants import WHITE, BLACK, PIECE_VALUES
+from pawn import Pawn
+from queen import Queen
+from rook import Rook
+from bishop import Bishop
+from knight import Knight
 
 
 
@@ -12,6 +17,11 @@ class Game:
         self.move_history = []
         self.game_over = False
         self.winner = None
+        self.promotion_pending = None
+        self.pending_promotion_notation = None
+        self.white_captured = []  # List of captured pieces by white
+        self.black_captured = []  # List of captured pieces by black
+        self.promotion_bonuses = {WHITE: 0, BLACK: 0}  # Track total promotion bonuses for scoring
 
 
     def select_piece(self, row, col):
@@ -71,6 +81,22 @@ class Game:
         notation = self.create_move_notation(piece, row, col, target, is_castling)
         if not self.board.move_piece(piece, row, col):
             return  # Invalid move (e.g., capturing king)
+
+        # Track captured pieces
+        if target:
+            if piece.color == WHITE:
+                self.white_captured.append(target.notation)
+            else:
+                self.black_captured.append(target.notation)
+
+        # Handle pawn promotion: if pawn reaches last rank, pause for selection
+        if isinstance(piece, Pawn) and ((piece.color == WHITE and piece.row == 0) or (piece.color == BLACK and piece.row == 7)):
+            # Store pending promotion state; wait for UI selection
+            self.promotion_pending = piece
+            self.pending_promotion_notation = notation
+            return
+
+        # Normal move (not promotion)
         self.move_history.append(notation)
 
         enemy = BLACK if piece.color == WHITE else WHITE
@@ -81,6 +107,57 @@ class Game:
         elif self.is_stalemate(enemy):
             self.game_over = True
             self.winner = None  # Draw
+
+        self.end_turn()
+
+    def promote_pawn(self, choice):
+        """Promote the pending pawn to one of: 'queen','rook','bishop','knight'."""
+        if not self.promotion_pending:
+            return
+        pawn = self.promotion_pending
+        r, c = pawn.row, pawn.col
+
+        class_map = {
+            'queen': Queen,
+            'rook': Rook,
+            'bishop': Bishop,
+            'knight': Knight
+        }
+        letter_map = {
+            'queen': 'Q',
+            'rook': 'R',
+            'bishop': 'B',
+            'knight': 'N'
+        }
+
+        cls = class_map.get(choice)
+        if not cls:
+            return
+
+        # Replace pawn with new piece instance of same color at same square
+        new_piece = cls(pawn.color, r, c)
+        self.board.grid[r][c] = new_piece
+        
+        # Add promotion bonus to score (difference between promoted piece and pawn)
+        promo_letter = letter_map.get(choice, 'Q')
+        promotion_bonus = PIECE_VALUES.get(promo_letter, 0) - 1  # -1 because pawn was worth 1
+        self.promotion_bonuses[new_piece.color] += promotion_bonus
+
+        # Append promotion notation (e.g., e8=Q)
+        self.move_history.append(f"{self.pending_promotion_notation}={promo_letter}")
+
+        # Clear pending promotion state
+        self.promotion_pending = None
+        self.pending_promotion_notation = None
+
+        # After promotion, check for game end and end turn
+        enemy = BLACK if new_piece.color == WHITE else WHITE
+        if self.is_checkmate(enemy):
+            self.winner = new_piece.color
+            self.game_over = True
+        elif self.is_stalemate(enemy):
+            self.game_over = True
+            self.winner = None
 
         self.end_turn()
         
@@ -186,4 +263,23 @@ class Game:
         self.move_history = []
         self.game_over = False
         self.winner = None
+        self.white_captured = []
+        self.black_captured = []
+        self.promotion_bonuses = {WHITE: 0, BLACK: 0}
+    
+    def get_material_score(self):
+        """Calculate net material advantage. Returns (leading_color, score_difference)."""
+        white_score = sum(PIECE_VALUES.get(piece, 0) for piece in self.white_captured)
+        black_score = sum(PIECE_VALUES.get(piece, 0) for piece in self.black_captured)
+        
+        # Add promotion bonuses
+        white_score += self.promotion_bonuses[WHITE]
+        black_score += self.promotion_bonuses[BLACK]
+        
+        if white_score > black_score:
+            return (WHITE, white_score - black_score)
+        elif black_score > white_score:
+            return (BLACK, black_score - white_score)
+        else:
+            return (None, 0)  # Equal material
 

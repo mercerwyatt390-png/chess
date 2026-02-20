@@ -1,13 +1,14 @@
 from game import Game
 import pygame
 import sys
-from constants import BOARD_SIZE, SQUARE_SIZE, WINDOW_SIZE, WHITE_COLOR, BLACK_COLOR, NAVY_BLUE, LIGHT_GREY, DARK_GREY, HIGHLIGHT_COLOR, WHITE, BLACK
+from constants import BOARD_SIZE, SQUARE_SIZE, WINDOW_SIZE, WHITE_COLOR, BLACK_COLOR, NAVY_BLUE, LIGHT_GREY, DARK_GREY, HIGHLIGHT_COLOR, CHECK_COLOR, WHITE, BLACK
 from pawn import Pawn
 from rook import Rook
 from bishop import Bishop
 from knight import Knight
 from queen import Queen
 from king import King
+from score_board import draw_captured_pieces
 
 
 def draw_board(screen, x, y, square_size):
@@ -35,6 +36,68 @@ def draw_move_dots(screen, game, x, y, square_size):
         center = (x + c * square_size + square_size // 2, y + r * square_size + square_size // 2)
         radius = max(4, square_size // 12)
         pygame.draw.circle(screen, DARK_GREY, center, radius)
+
+
+def draw_check_highlight(screen, game, x, y, square_size):
+    # Highlight king's square with red if king is in check
+    if game.is_in_check(game.turn):
+        king = game.board.find_king(game.turn)
+        if king:
+            row, col = king.row, king.col
+            highlight_surf = pygame.Surface((square_size, square_size), pygame.SRCALPHA)
+            highlight_surf.fill((*CHECK_COLOR, 150))
+            screen.blit(highlight_surf, (x + col * square_size, y + row * square_size))
+
+
+def draw_promotion_box(screen, game, images, x, y, square_size):
+    """Draws a black box with promotion options under (or above) the promoted pawn.
+    Returns a dict mapping choice -> pygame.Rect for click detection.
+    Order: Queen, Rook, Bishop, Knight (left to right).
+    """
+    pawn = game.promotion_pending
+    if not pawn:
+        return None
+
+    row, col = pawn.row, pawn.col
+    board_x, board_y = x, y
+
+    box_w = square_size * 4
+    box_h = square_size
+
+    # Preferred: draw below pawn if space, otherwise above
+    if row + 1 < 8:
+        box_y = board_y + (row + 1) * square_size
+    else:
+        box_y = board_y + (row - 1) * square_size
+
+    # Center the 4-option box horizontally on the pawn square
+    box_x = board_x + col * square_size + square_size // 2 - box_w // 2
+
+    # Clamp inside board area
+    board_w = square_size * BOARD_SIZE
+    box_x = max(board_x, min(box_x, board_x + board_w - box_w))
+
+    # Draw box
+    s = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+    s.fill((0, 0, 0, 220))
+    screen.blit(s, (box_x, box_y))
+    pygame.draw.rect(screen, (200, 200, 200), (box_x, box_y, box_w, box_h), 2)
+
+    choices = ['queen', 'rook', 'bishop', 'knight']
+    rects = {}
+    for i, choice in enumerate(choices):
+        img_key = f"{choice}_{'white' if pawn.color == WHITE else 'black'}"
+        img = images.get(img_key)
+        if img:
+            img_s = pygame.transform.smoothscale(img, (square_size, square_size))
+            img_x = box_x + i * square_size
+            img_y = box_y
+            screen.blit(img_s, (img_x, img_y))
+            rects[choice] = pygame.Rect(img_x, img_y, square_size, square_size)
+        else:
+            rects[choice] = pygame.Rect(box_x + i * square_size, box_y, square_size, square_size)
+
+    return rects
 
 def load_piece_images():
     images = {}
@@ -171,6 +234,8 @@ def main():
     while running:
         clock.tick(60)
 
+        promotion_option_rects = None
+
         # Fill background with Navy Blue
         screen.fill(NAVY_BLUE)
 
@@ -194,6 +259,9 @@ def main():
         # Highlight selected piece's square (under pieces)
         draw_highlight(screen, game, board_x, board_y, square_size)
 
+        # Highlight king's square red if in check
+        draw_check_highlight(screen, game, board_x, board_y, square_size)
+
         # Draw pieces
         draw_pieces(screen, game.board, images, board_x, board_y, square_size)
 
@@ -203,6 +271,13 @@ def main():
         # Draw move list if space
         if show_moves:
             draw_move_list(screen, game.move_history, current_width - 200, 0, 200, current_height)
+
+        # Draw captured pieces and material score
+        draw_captured_pieces(screen, game, images, board_x, board_size, current_width, current_height, square_size)
+
+        # Draw promotion box if pending and capture rects for clicks
+        if game.promotion_pending:
+            promotion_option_rects = draw_promotion_box(screen, game, images, board_x, board_y, square_size)
 
         # Draw game over screen if needed
         if game.game_over:
@@ -220,6 +295,15 @@ def main():
             elif event.type == pygame.VIDEORESIZE:
                 current_width, current_height = event.w, event.h
                 screen = pygame.display.set_mode((current_width, current_height), pygame.RESIZABLE)
+            # If a promotion is pending, only accept clicks on promotion choices
+            elif game.promotion_pending and event.type == pygame.MOUSEBUTTONDOWN:
+                mx, my = pygame.mouse.get_pos()
+                if promotion_option_rects:
+                    for choice, rect in promotion_option_rects.items():
+                        if rect.collidepoint(mx, my):
+                            game.promote_pawn(choice)
+                            break
+                continue
             elif event.type == pygame.MOUSEBUTTONDOWN and game.game_over:
                 # Reset game on click when game over
                 game.reset()
